@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لعبة التخمين المطور</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: #1e1e1e; padding: 25px; border-radius: 12px; }
+        button { background: #e50914; color: white; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
+        input { padding: 10px; font-size: 16px; border-radius: 6px; border: 1px solid #444; background: #2b2b2b; color: white; text-align: center; }
+        .hidden { display: none; }
+        .info-bar { display: flex; justify-content: space-around; margin-bottom: 20px; background: #282828; padding: 10px; border-radius: 8px; }
+        .turn-highlight { font-size: 18px; font-weight: bold; margin: 10px 0; padding: 5px; border-radius: 5px; }
+        .my-turn { background: #2ed573; color: black; }
+        .not-my-turn { background: #ff4757; color: white; }
+        img { max-width: 100%; max-height: 300px; border-radius: 8px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎮 تحدي التخمين المشترك 🎮</h1>
+    
+    <div id="setup-screen">
+        <button onclick="createRoom()">صناعة غرفة (Host)</button>
+        <br><br>
+        <input type="text" id="room-input" placeholder="أدخل رقم الغرفة">
+        <button onclick="joinRoom()">انضمام للغرفة</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <div class="info-bar">
+            <span id="room-display">--</span>
+            <span>الفئة: <span id="category-text" style="color:#2ed573;">--</span></span>
+            <span>الوقت: <span id="timer-text" style="color:#ff4757;">30</span>ث</span>
+        </div>
+
+        <div id="turn-status" class="turn-highlight">جاري تحديد الأدوار...</div>
+        <h2 id="round-title">الجولة 1</h2>
+        
+        <img id="game-image" src="" alt="صورة التخمين">
+        
+        <div id="chat-area" style="margin-top:20px;">
+            <input type="text" id="message-input" placeholder="خمن صورة خصمك هنا...">
+            <button onclick="sendMessage()">إرسال التخمين</button>
+        </div>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    let currentRoom = null;
+    let timerInterval = null;
+    let canPlay = false;
+
+    function createRoom() { socket.emit('hostCreateRoom'); }
+    function joinRoom() {
+        const room = document.getElementById('room-input').value.trim();
+        if(room) { currentRoom = room; socket.emit('playerJoinRoom', room); document.getElementById('setup-screen').classList.add('hidden'); document.getElementById('game-screen').classList.remove('hidden'); }
+    }
+
+    socket.on('roomCreated', (roomId) => {
+        currentRoom = roomId;
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        document.getElementById('room-display').innerText = `الغرفة: ${roomId}`;
+    });
+
+    socket.on('startRoundData', (data) => {
+        document.getElementById('game-image').src = data.image;
+        document.getElementById('round-title').innerText = `الجولة ${data.round}`;
+        document.getElementById('category-text').innerText = data.category;
+        
+        canPlay = data.myTurn;
+        const status = document.getElementById('turn-status');
+        const inputField = document.getElementById('message-input');
+        
+        if(canPlay) {
+            status.innerText = "🔴 دورك الآن! خمن الكلمة بسرعة!";
+            status.className = "turn-highlight my-turn";
+            inputField.disabled = false;
+            startTimer();
+        } else {
+            status.innerText = "⏳ دور الخصم... انتظر تفكيره";
+            status.className = "turn-highlight not-my-turn";
+            inputField.disabled = true;
+            clearInterval(timerInterval);
+            document.getElementById('timer-text').innerText = "--";
+        }
+    });
+
+    function startTimer() {
+        clearInterval(timerInterval);
+        let timeLeft = 30;
+        document.getElementById('timer-text').innerText = timeLeft;
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            document.getElementById('timer-text').innerText = timeLeft;
+            if(timeLeft <= 0) {
+                clearInterval(timerInterval);
+                socket.emit('gameAction', { action: 'chat', room: currentRoom, text: "انتهى الوقت" });
+            }
+        }, 1000);
+    }
+
+    function sendMessage() {
+        if(!canPlay) return;
+        const text = document.getElementById('message-input').value.trim();
+        if(text !== "") {
+            socket.emit('gameAction', { action: 'chat', room: currentRoom, text: text });
+            document.getElementById('message-input').value = '';
+        }
+    }
+
+    socket.on('correctAnswer', (data) => { alert(data.text); clearInterval(timerInterval); });
+    socket.on('turnSwitched', (data) => { alert(data.text); clearInterval(timerInterval); });
+    socket.on('receiveMsg', (data) => { alert(data.text); });
+</script>
+</body>
+</html>
